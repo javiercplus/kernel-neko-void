@@ -1,0 +1,144 @@
+name: Compilar Neko Void Kernel rolling
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  KERNEL_REVISION: 1   # Ya no se usa directamente, pero se puede dejar
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/void-linux/void-glibc-full:latest
+      options: --user root
+
+    steps:
+      - name: 1. Instalar dependencias del sistema
+        run: |
+          xbps-install -Syu xbps -y
+          xbps-install -Syu base-devel git bc kmod elfutils-devel bash cpio xz lz4 zstd flex bison openssl-devel curl pahole tar python3 patch wget rsync -y
+
+      - name: 2. Checkout del repositorio (para scripts personalizados si los hay)
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: 3. Clonar fuentes del kernel y modificar EXTRAVERSION a -rt
+        run: |
+          git clone --depth 1 --branch v7.0 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git linux-src
+          cd linux-src
+          # Cambiar EXTRAVERSION de -rc4 a -rt
+          sed -i 's/^EXTRAVERSION =.*/EXTRAVERSION = -rolling/' Makefile
+          cd ..
+
+      - name: 4. Obtener configuración base de Void y establecer como .config
+        run: |
+          cd linux-src
+          wget -O .config https://github.com/void-linux/void-packages/raw/refs/heads/master/srcpkgs/linux7.0/files/x86_64-dotconfig
+          cd ..
+
+      - name: 5. Aplicar parche de Void (fixdep-largefile)
+        run: |
+          cd linux-src
+          wget -O fixdep-largefile.patch https://github.com/void-linux/void-packages/raw/refs/heads/master/srcpkgs/linux7.0/patches/fixdep-largefile.patch
+          patch -p1 -N --batch < fixdep-largefile.patch
+          cd ..
+
+
+      - name: 6. Ajustar configuración (Hz, optimizaciones, RT, debug, nombre)
+        run: |
+          cd linux-src
+          # Desactivar la generación automática de versión git para evitar -dirty
+          scripts/config --disable CONFIG_LOCALVERSION_AUTO
+          # Establecer LOCALVERSION con el identificador deseado (ej: -neko)
+          scripts/config --set-str CONFIG_LOCALVERSION "-neko"
+          
+          # Frecuencia de reloj 1000 Hz
+          scripts/config -d CONFIG_HZ_300 -e CONFIG_HZ_1000 --set-val CONFIG_HZ 1000
+          scripts/config -d CONFIG_HZ_PERIODIC -d CONFIG_NO_HZ_IDLE -e CONFIG_NO_HZ_FULL -e CONFIG_NO_HZ
+          
+          # Compresión ZSTD para módulos
+          scripts/config -e CONFIG_MODULE_COMPRESS_ZSTD
+          
+          # Hugepages always (mejor rendimiento)
+          scripts/config -d CONFIG_TRANSPARENT_HUGEPAGE_MADVISE -e CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS
+          
+          # Activar RT (PREEMPT_RT)
+          scripts/config -d CONFIG_PREEMPT_VOLUNTARY
+          scripts/config -d CONFIG_PREEMPT_LL
+          scripts/config -d CONFIG_PREEMPT_NONE
+          scripts/config -e CONFIG_PREEMPT_RT
+          
+          # Desactivar debug masivo
+          scripts/config --disable CONFIG_DEBUG_INFO \
+                         --disable CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT \
+                         --disable CONFIG_DEBUG_INFO_REDUCED \
+                         --disable CONFIG_DEBUG_INFO_BTF \
+                         --disable CONFIG_DEBUG_VM \
+                         --disable CONFIG_DEBUG_KERNEL \
+                         --disable CONFIG_PROVE_LOCKING \
+                         --disable CONFIG_LOCK_STAT \
+                         --disable CONFIG_LATENCYTOP
+          
+          # Desactivar firma de módulos (evita problemas con certificados)
+          scripts/config --disable CONFIG_MODULE_SIG
+          scripts/config --set-str CONFIG_SYSTEM_TRUSTED_KEYS ""
+          
+          # Actualizar configuración (incorpora nuevas opciones de los parches)
+          make olddefconfig
+          cd ..
+
+      - name: 7. Compilar el kernel y módulos (con logs detallados)
+        run: |
+          cd linux-src
+          export KBUILD_BUILD_TIMESTAMP=$(date -u -d @0 +"%Y-%m-%d %H:%M:%S")
+          export KBUILD_BUILD_USER=voidlinux
+          export KBUILD_BUILD_HOST=voidlinux
+          export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+          
+          # Compilar con V=1 para logs detallados
+          make -j$(nproc) prepare V=1
+          make -j$(nproc) bzImage modules V=1 2>&1 | tee ../build.log
+          cd ..
+
+      - name: 8. Subir logs de compilación (incluso si falla)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: build.log
+
+      - name: 9. Instalar kernel, módulos y config (solo si la compilación fue exitosa)
+        if: success()
+        run: |
+          cd linux-src
+          KERNEL_RELEASE=$(make kernelrelease)
+          echo "KERNEL_RELEASE=${KERNEL_RELEASE}" >> $GITHUB_ENV
+          
+          make INSTALL_MOD_PATH=$GITHUB_WORKSPACE/modules modules_install
+          
+          mkdir -p $GITHUB_WORKSPACE/pkg/boot
+          cp arch/x86/boot/bzImage $GITHUB_WORKSPACE/pkg/boot/vmlinuz-${KERNEL_RELEASE}
+          cp System.map $GITHUB_WORKSPACE/pkg/boot/System.map-${KERNEL_RELEASE}
+          cp .config $GITHUB_WORKSPACE/pkg/boot/config-${KERNEL_RELEASE}
+          
+          mkdir -p $GITHUB_WORKSPACE/pkg/lib/modules
+          mv $GITHUB_WORKSPACE/modules/lib/modules/${KERNEL_RELEASE} $GITHUB_WORKSPACE/pkg/lib/modules/
+          cd ..
+
+      - name: 10. Empaquetar artefactos
+        if: success()
+        run: |
+          cd $GITHUB_WORKSPACE/pkg
+          tar -czf ../neko-kernel-void-${KERNEL_RELEASE}.tar.gz .
+          cd ..
+
+      - name: 11. Subir resultado
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neko-kernel-void-rt-rc
+          path: neko-kernel-void-*.tar.gz
