@@ -1,7 +1,6 @@
 name: Compilar Neko Void Kernel (con RT sobre RC)
 
 on:
-  push:
   workflow_dispatch:
 
 env:
