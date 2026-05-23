@@ -1,7 +1,6 @@
 name: Compilar Zen Kernel (lqx1) para Void Linux
 
 on:
-  push:
   workflow_dispatch:
 
 jobs:
