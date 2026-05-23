@@ -1,7 +1,6 @@
 name: Compilar Neko Void Kernel rolling
 
 on:
-  push:
   workflow_dispatch:
 
 env:
