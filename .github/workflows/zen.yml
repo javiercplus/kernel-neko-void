@@ -13,8 +13,8 @@ jobs:
     steps:
       - name: 1. Instalar dependencias del sistema
         run: |
-          xbps-install -Syu xbps -y
-          xbps-install -Syu base-devel git bc kmod elfutils-devel bash cpio xz lz4 zstd flex bison openssl-devel curl pahole tar python3 patch wget rsync -y
+          xbps-install -Syu --repository=https://repo-de.voidlinux.org/current/ xbps -y
+          xbps-install -Syu --repository=https://repo-de.voidlinux.org/current/ base-devel git bc kmod elfutils-devel bash cpio xz lz4 zstd flex bison openssl-devel curl pahole tar python3 patch wget rsync -y
 
       - name: 2. Checkout de TU repositorio (para scripts personalizados si los hay)
         uses: actions/checkout@v4
