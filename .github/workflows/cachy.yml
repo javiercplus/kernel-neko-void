@@ -86,7 +86,7 @@ jobs:
           scripts/config --set-str CONFIG_SYSTEM_TRUSTED_KEYS ""
           
           # Actualizar configuración (incorpora nuevas opciones de los parches)
-          make olddefconfig
+          # make olddefconfig
           cd ..
 
       - name: 7. Compilar el kernel y módulos (con logs detallados)
