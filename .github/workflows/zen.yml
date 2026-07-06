@@ -39,7 +39,6 @@ jobs:
           cd linux-src
           # Evitar sufijo -dirty (por si acaso)
           scripts/config --disable CONFIG_LOCALVERSION_AUTO
-          # Añadir identificador personal (el nombre final será algo como 6.18.12-lqx1-neko)
           scripts/config --set-str CONFIG_LOCALVERSION "-neko"
           
           # Optimizaciones
