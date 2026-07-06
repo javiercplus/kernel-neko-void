@@ -1,4 +1,4 @@
-name: Compilar Zen Kernel (lqx1) para Void Linux
+name: Compilar Zen Kernel para Void Linux
 
 on:
   workflow_dispatch:
