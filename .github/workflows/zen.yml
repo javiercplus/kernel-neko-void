@@ -30,7 +30,7 @@ jobs:
           cd linux-src
           wget -O fixdep-largefile.patch https://github.com/void-linux/void-packages/raw/refs/heads/master/srcpkgs/linux7.1/patches/fixdep-largefile.patch
           patch -p1 -N --batch < fixdep-largefile.patch
-          wget -o parche.patch https://github.com/javiercplus/kernel-neko-void/raw/refs/heads/main/linux-v7.1.2-zen3.patch
+          wget -O parche.patch https://github.com/javiercplus/kernel-neko-void/raw/refs/heads/main/linux-v7.1.2-zen3.patch
           patch -p1 -N --batch < parche.patch 
           #git config --global user.email "javierc@noreply.com"
           #git config --global user.name "JavierC"
