@@ -19,58 +19,44 @@ jobs:
           xbps-install -Syu --repository=https://repo-de.voidlinux.org/current/ xbps 
           xbps-install -Syu --repository=https://repo-de.voidlinux.org/current/ base-devel git bc kmod elfutils-devel bash cpio xz lz4 zstd flex bison openssl-devel curl pahole tar python3 patch wget rsync -y
 
-      - name: 2. Checkout del repositorio (para scripts personalizados si los hay)
+      - name: 2. Checkout del repositorio
         uses: actions/checkout@v4
         with:
           path: repo
 
-      - name: 3. Clonar fuentes del kernel y modificar EXTRAVERSION a -rt
+      - name: 3. Clonar fuentes del kernel y modificar EXTRAVERSION
         run: |
           git clone --depth 1 --branch v7.1 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git linux-src
           cd linux-src
-          # Cambiar EXTRAVERSION de -rc4 a -rt
           sed -i 's/^EXTRAVERSION =.*/EXTRAVERSION = -cachy/' Makefile
           cd ..
 
-      - name: 4. Obtener configuración base de Void y establecer como .config
+      - name: 4. Obtener configuración base
         run: |
           cd linux-src
           wget -O .config https://codeberg.org/javiercplus/cachy-void/raw/branch/main/config
           cd ..
 
-      - name: 5. Aplicar parche de Void (fixdep-largefile)
+      - name: 5. Aplicar parche de Void
         run: |
           cd linux-src
           wget -O fixdep-largefile.patch https://github.com/void-linux/void-packages/raw/refs/heads/master/srcpkgs/linux7.1/patches/fixdep-largefile.patch
           patch -p1 -N --batch < fixdep-largefile.patch
           cd ..
 
-
-      - name: 6. Ajustar configuración (Hz, optimizaciones, RT, debug, nombre)
+      - name: 6. Ajustar configuración
         run: |
           cd linux-src
-          # Desactivar la generación automática de versión git para evitar -dirty
           scripts/config --disable CONFIG_LOCALVERSION_AUTO
-          # Establecer LOCALVERSION con el identificador deseado (ej: -neko)
           scripts/config --set-str CONFIG_LOCALVERSION "-bore"
-          
-          # Frecuencia de reloj 1000 Hz
           scripts/config -d CONFIG_HZ_300 -e CONFIG_HZ_1000 --set-val CONFIG_HZ 1000
           scripts/config -d CONFIG_HZ_PERIODIC -d CONFIG_NO_HZ_IDLE -e CONFIG_NO_HZ_FULL -e CONFIG_NO_HZ
-          
-          # Compresión ZSTD para módulos
           scripts/config -e CONFIG_MODULE_COMPRESS_ZSTD
-          
-          # Hugepages always (mejor rendimiento)
           scripts/config -d CONFIG_TRANSPARENT_HUGEPAGE_MADVISE -e CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS
-          
-          # Activar RT (PREEMPT_RT)
           scripts/config -d CONFIG_PREEMPT_VOLUNTARY
           scripts/config -d CONFIG_PREEMPT_LL
           scripts/config -d CONFIG_PREEMPT_NONE
           scripts/config -e CONFIG_PREEMPT_RT
-          
-          # Desactivar debug masivo
           scripts/config --disable CONFIG_DEBUG_INFO \
                          --disable CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT \
                          --disable CONFIG_DEBUG_INFO_REDUCED \
@@ -80,16 +66,11 @@ jobs:
                          --disable CONFIG_PROVE_LOCKING \
                          --disable CONFIG_LOCK_STAT \
                          --disable CONFIG_LATENCYTOP
-          
-          # Desactivar firma de módulos (evita problemas con certificados)
           scripts/config --disable CONFIG_MODULE_SIG
           scripts/config --set-str CONFIG_SYSTEM_TRUSTED_KEYS ""
-          
-          # Actualizar configuración (incorpora nuevas opciones de los parches)
-          # make olddefconfig
           cd ..
 
-      - name: 7. Compilar el kernel y módulos (con logs detallados)
+      - name: 7. Compilar el kernel y módulos
         run: |
           cd linux-src
           export KBUILD_BUILD_TIMESTAMP=$(date -u -d @0 +"%Y-%m-%d %H:%M:%S")
@@ -97,19 +78,18 @@ jobs:
           export KBUILD_BUILD_HOST=voidlinux
           export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
           
-          # Compilar con V=1 para logs detallados
           make -j$(nproc) prepare V=1
           make -j$(nproc) bzImage modules V=1 2>&1 | tee ../build.log
           cd ..
 
-      - name: 8. Subir logs de compilación (incluso si falla)
+      - name: 8. Subir logs de compilación
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs
           path: build.log
 
-      - name: 9. Instalar kernel, módulos y config (solo si la compilación fue exitosa)
+      - name: 9. Instalar kernel, módulos y compilar headers
         if: success()
         run: |
           cd linux-src
@@ -125,8 +105,28 @@ jobs:
           
           mkdir -p $GITHUB_WORKSPACE/pkg/lib/modules
           mv $GITHUB_WORKSPACE/modules/lib/modules/${KERNEL_RELEASE} $GITHUB_WORKSPACE/pkg/lib/modules/
-          cd ..
-
+          
+          HEADERS_DIR=$GITHUB_WORKSPACE/pkg/usr/src/linux-headers-${KERNEL_RELEASE}
+          mkdir -p $HEADERS_DIR/arch/x86
+          
+          cp Makefile .config Module.symvers System.map $HEADERS_DIR/
+          cp -a scripts include $HEADERS_DIR/
+          cp -a arch/x86/include $HEADERS_DIR/arch/x86/
+          cp arch/x86/Makefile $HEADERS_DIR/arch/x86/ || true
+          
+          if [ -f tools/objtool/objtool ]; then
+            mkdir -p $HEADERS_DIR/tools/objtool
+            cp tools/objtool/objtool $HEADERS_DIR/tools/objtool/
+          fi
+          
+          find $HEADERS_DIR/scripts -type f -name '*.o' -delete
+          
+          cd $GITHUB_WORKSPACE/pkg/lib/modules/${KERNEL_RELEASE}
+          rm -f build source
+          ln -sf /usr/src/linux-headers-${KERNEL_RELEASE} build
+          ln -sf /usr/src/linux-headers-${KERNEL_RELEASE} source
+          cd $GITHUB_WORKSPACE
+          
       - name: 10. Empaquetar artefactos
         if: success()
         run: |
