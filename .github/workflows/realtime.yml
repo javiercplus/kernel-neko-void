@@ -115,7 +115,7 @@ jobs:
           name: build-logs
           path: build.log
 
-      - name: 10. Instalar kernel, módulos y config (solo si la compilación fue exitosa)
+      - name: 10. Instalar kernel, módulos y compilar headers
         if: success()
         run: |
           cd linux-src
@@ -131,7 +131,27 @@ jobs:
           
           mkdir -p $GITHUB_WORKSPACE/pkg/lib/modules
           mv $GITHUB_WORKSPACE/modules/lib/modules/${KERNEL_RELEASE} $GITHUB_WORKSPACE/pkg/lib/modules/
-          cd ..
+          
+          HEADERS_DIR=$GITHUB_WORKSPACE/pkg/usr/src/linux-headers-${KERNEL_RELEASE}
+          mkdir -p $HEADERS_DIR/arch/x86
+          
+          cp Makefile .config Module.symvers System.map $HEADERS_DIR/
+          cp -a scripts include $HEADERS_DIR/
+          cp -a arch/x86/include $HEADERS_DIR/arch/x86/
+          cp arch/x86/Makefile $HEADERS_DIR/arch/x86/ || true
+          
+          if [ -f tools/objtool/objtool ]; then
+            mkdir -p $HEADERS_DIR/tools/objtool
+            cp tools/objtool/objtool $HEADERS_DIR/tools/objtool/
+          fi
+          
+          find $HEADERS_DIR/scripts -type f -name '*.o' -delete
+          
+          cd $GITHUB_WORKSPACE/pkg/lib/modules/${KERNEL_RELEASE}
+          rm -f build source
+          ln -sf /usr/src/linux-headers-${KERNEL_RELEASE} build
+          ln -sf /usr/src/linux-headers-${KERNEL_RELEASE} source
+          cd $GITHUB_WORKSPACE
 
       - name: 11. Empaquetar artefactos
         if: success()
