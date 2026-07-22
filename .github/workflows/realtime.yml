@@ -26,7 +26,7 @@ jobs:
 
       - name: 3. Clonar fuentes del kernel (v6.18-rc4) y modificar EXTRAVERSION a -rt
         run: |
-          git clone --depth 1 --branch v6.18-rc4 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git linux-src
+          git clone --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/rt/linux-rt-devel.git linux-src
           cd linux-src
           # Cambiar EXTRAVERSION de -rc4 a -rt
           sed -i 's/^EXTRAVERSION =.*/EXTRAVERSION = -rt/' Makefile
@@ -35,21 +35,14 @@ jobs:
       - name: 4. Obtener configuración base de Void y establecer como .config
         run: |
           cd linux-src
-          wget -O .config https://github.com/void-linux/void-packages/raw/refs/heads/master/srcpkgs/linux6.18/files/x86_64-dotconfig
+          wget -O .config https://github.com/void-linux/void-packages/raw/refs/heads/master/srcpkgs/linux7.1/files/x86_64-dotconfig
           cd ..
 
       - name: 5. Aplicar parche de Void (fixdep-largefile)
         run: |
           cd linux-src
-          wget -O fixdep-largefile.patch https://github.com/void-linux/void-packages/raw/refs/heads/master/srcpkgs/linux6.18/patches/fixdep-largefile.patch
+          wget -O fixdep-largefile.patch https://github.com/void-linux/void-packages/raw/refs/heads/master/srcpkgs/linux7.1/patches/fixdep-largefile.patch
           patch -p1 -N --batch < fixdep-largefile.patch
-          cd ..
-
-      - name: 6. Aplicar parche RT (PREEMPT_RT para 6.18-rc4)
-        run: |
-          cd linux-src
-          wget https://cdn.kernel.org/pub/linux/kernel/projects/rt/6.18/patch-6.18-rc4-rt3.patch.xz
-          xzcat patch-6.18-rc4-rt3.patch.xz | patch -p1 -N --batch
           cd ..
 
       - name: 7. Ajustar configuración (Hz, optimizaciones, RT, debug, nombre)
