@@ -26,7 +26,7 @@ jobs:
 
       - name: 3. Clonar fuentes del kernel y modificar EXTRAVERSION a -rolling
         run: |
-          git clone --depth 1 --branch https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git linux-src
+          git clone --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git linux-src
           cd linux-src
           # Cambiar EXTRAVERSION a -rolling
           sed -i 's/^EXTRAVERSION =.*/EXTRAVERSION = -rolling/' Makefile
