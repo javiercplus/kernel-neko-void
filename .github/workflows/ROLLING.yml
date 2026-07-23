@@ -24,11 +24,11 @@ jobs:
         with:
           path: repo
 
-      - name: 3. Clonar fuentes del kernel y modificar EXTRAVERSION a -rt
+      - name: 3. Clonar fuentes del kernel y modificar EXTRAVERSION a -rolling
         run: |
-          git clone --depth 1 --branch v7.0 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git linux-src
+          git clone --depth 1 --branch https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git linux-src
           cd linux-src
-          # Cambiar EXTRAVERSION de -rc4 a -rt
+          # Cambiar EXTRAVERSION a -rolling
           sed -i 's/^EXTRAVERSION =.*/EXTRAVERSION = -rolling/' Makefile
           cd ..
 
@@ -42,9 +42,8 @@ jobs:
         run: |
           cd linux-src
           wget -O fixdep-largefile.patch https://github.com/void-linux/void-packages/raw/refs/heads/master/srcpkgs/linux7.0/patches/fixdep-largefile.patch
-          patch -p1 -N --batch < fixdep-largefile.patch
+          # patch -p1 -N --batch < fixdep-largefile.patch
           cd ..
-
 
       - name: 6. Ajustar configuración (Hz, optimizaciones, RT, debug, nombre)
         run: |
@@ -53,6 +52,27 @@ jobs:
           scripts/config --disable CONFIG_LOCALVERSION_AUTO
           # Establecer LOCALVERSION con el identificador deseado (ej: -neko)
           scripts/config --set-str CONFIG_LOCALVERSION "-neko"
+          
+          # --- OPTIMIZACIONES DE RENDIMIENTO ADICIONALES ---
+          # 1. Multi-Gen LRU (Mejor manejo de RAM bajo carga)
+          scripts/config --enable CONFIG_LRU_GEN
+          scripts/config --enable CONFIG_LRU_GEN_ENABLED
+          
+          # 2. Gobernador de CPU en Performance por defecto
+          scripts/config --disable CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL
+          scripts/config --enable CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE
+          
+          # 3. Habilitar TCP BBR para mejorar la red
+          scripts/config --module CONFIG_TCP_CONG_BBR
+          scripts/config --enable CONFIG_DEFAULT_BBR
+          
+          # 4. Asegurar compilación para rendimiento (-O2)
+          scripts/config --disable CONFIG_CC_OPTIMIZE_FOR_SIZE
+          scripts/config --enable CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
+          
+          # 5. Desactivar colas de trabajo eficientes en energía
+          scripts/config --disable CONFIG_WQ_POWER_EFFICIENT_DEFAULT
+          # --------------------------------------------------
           
           # Frecuencia de reloj 1000 Hz
           scripts/config -d CONFIG_HZ_300 -e CONFIG_HZ_1000 --set-val CONFIG_HZ 1000
@@ -109,7 +129,7 @@ jobs:
           name: build-logs
           path: build.log
 
-      - name: 9. Instalar kernel, módulos y config (solo si la compilación fue exitosa)
+      - name: 9. Instalar kernel, módulos y compilar headers
         if: success()
         run: |
           cd linux-src
@@ -125,7 +145,27 @@ jobs:
           
           mkdir -p $GITHUB_WORKSPACE/pkg/lib/modules
           mv $GITHUB_WORKSPACE/modules/lib/modules/${KERNEL_RELEASE} $GITHUB_WORKSPACE/pkg/lib/modules/
-          cd ..
+          
+          HEADERS_DIR=$GITHUB_WORKSPACE/pkg/usr/src/linux-headers-${KERNEL_RELEASE}
+          mkdir -p $HEADERS_DIR/arch/x86
+          
+          cp Makefile .config Module.symvers System.map $HEADERS_DIR/
+          cp -a scripts include $HEADERS_DIR/
+          cp -a arch/x86/include $HEADERS_DIR/arch/x86/
+          cp arch/x86/Makefile $HEADERS_DIR/arch/x86/ || true
+          
+          if [ -f tools/objtool/objtool ]; then
+            mkdir -p $HEADERS_DIR/tools/objtool
+            cp tools/objtool/objtool $HEADERS_DIR/tools/objtool/
+          fi
+          
+          find $HEADERS_DIR/scripts -type f -name '*.o' -delete
+          
+          cd $GITHUB_WORKSPACE/pkg/lib/modules/${KERNEL_RELEASE}
+          rm -f build source
+          ln -sf /usr/src/linux-headers-${KERNEL_RELEASE} build
+          ln -sf /usr/src/linux-headers-${KERNEL_RELEASE} source
+          cd $GITHUB_WORKSPACE
 
       - name: 10. Empaquetar artefactos
         if: success()
