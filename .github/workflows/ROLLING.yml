@@ -173,10 +173,9 @@ jobs:
           cd $GITHUB_WORKSPACE/pkg
           tar -czf ../neko-kernel-void-${KERNEL_RELEASE}.tar.gz .
           cd ..
-
-      - name: 11. Subir resultado
-        if: success()
-        uses: actions/upload-artifact@v4
+      - name: Subir a Release 
+        uses: softprops/action-gh-release@v2
         with:
-          name: neko-kernel-void-rt-rc
-          path: neko-kernel-void-*.tar.gz
+          tag_name: 7.1
+          files: |
+            neko-kernel-void-*.tar.gz
